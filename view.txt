@@ -1,0 +1,223 @@
+Perfect! Here's a version of RelayCommand and how to update your MainViewModel to enable/disable the Run Tests button based on whether a DLL is selected.
+
+
+---
+
+✅ Updated RelayCommand.cs with CanExecute
+
+using System;
+using System.Windows.Input;
+
+namespace VSTestRunnerMVVM.ViewModels
+{
+    public class RelayCommand : ICommand
+    {
+        private readonly Action _execute;
+        private readonly Func<bool> _canExecute;
+
+        public RelayCommand(Action execute, Func<bool> canExecute = null)
+        {
+            _execute = execute ?? throw new ArgumentNullException(nameof(execute));
+            _canExecute = canExecute;
+        }
+
+        public bool CanExecute(object parameter) => _canExecute?.Invoke() ?? true;
+
+        public void Execute(object parameter) => _execute();
+
+        public event EventHandler CanExecuteChanged
+        {
+            add => CommandManager.RequerySuggested += value;
+            remove => CommandManager.RequerySuggested -= value;
+        }
+
+        public void RaiseCanExecuteChanged()
+        {
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+}
+
+🔁 RaiseCanExecuteChanged() can be used to manually force the button to re-check CanExecute.
+
+
+---
+
+✅ Update in MainViewModel.cs
+
+Make this change:
+
+1. Store the command in a private field:
+
+private RelayCommand _runTestsCommand;
+public ICommand RunTestsCommand => _runTestsCommand;
+
+2. Update the constructor:
+
+public MainViewModel()
+{
+    BrowseDllCommand = new RelayCommand(BrowseDll);
+    _runTestsCommand = new RelayCommand(
+        async () => await RunTestsAsync(),
+        () => !string.IsNullOrWhiteSpace(DllPath)
+    );
+}
+
+3. In DllPath setter, notify the command:
+
+set
+{
+    _dllPath = value;
+    OnPropertyChanged();
+    _runTestsCommand.RaiseCanExecuteChanged(); // 💡 this updates the Run button
+}
+
+
+---
+
+✅ Result in UI
+
+Now:
+
+When DllPath is empty, the "Run Tests" button is disabled.
+
+When the user selects a DLL, the button becomes active.
+
+
+
+---
+
+Let me know if you'd like:
+
+A visual indicator next to the button (e.g. ✔ or ✖)
+
+RelayCommand<T> support for parameterized actions
+
+
+..
+
+Here's your corrected and fully working MainViewModel.cs — includes:
+
+TestResults as an ObservableCollection<TestResult>
+
+Proper OnPropertyChanged calls after updates
+
+Clear logic separation
+
+Commands: BrowseDllCommand and RunTestsCommand
+
+
+
+---
+
+✅ Final MainViewModel.cs
+
+using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using Microsoft.Win32;
+using VSTestRunnerMVVM.Models;
+
+namespace VSTestRunnerMVVM.ViewModels
+{
+    public class MainViewModel : INotifyPropertyChanged
+    {
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        private string _dllPath;
+        public string DllPath
+        {
+            get => _dllPath;
+            set
+            {
+                _dllPath = value;
+                OnPropertyChanged();
+                // Optional: trigger CanExecuteChanged if you want to disable the button until DLL is selected
+            }
+        }
+
+        public ObservableCollection<TestResult> TestResults { get; } = new();
+
+        public ICommand BrowseDllCommand { get; }
+        public ICommand RunTestsCommand { get; }
+
+        private readonly TestRunner testRunner = new();
+
+        public MainViewModel()
+        {
+            BrowseDllCommand = new RelayCommand(BrowseDll);
+            RunTestsCommand = new RelayCommand(async () => await RunTestsAsync());
+        }
+
+        private void BrowseDll()
+        {
+            OpenFileDialog dlg = new()
+            {
+                Filter = "DLL Files (*.dll)|*.dll",
+                Title = "Select Unit Test DLL"
+            };
+
+            if (dlg.ShowDialog() == true)
+            {
+                DllPath = dlg.FileName;
+                OnPropertyChanged(nameof(DllPath));
+            }
+        }
+
+        private async Task RunTestsAsync()
+        {
+            try
+            {
+                var results = await testRunner.RunTestsAsync(DllPath);
+
+                TestResults.Clear();
+
+                foreach (var result in results)
+                {
+                    TestResults.Add(result);
+                }
+
+                // 🧠 Force UI to refresh even if binding is correct
+                OnPropertyChanged(nameof(TestResults));
+            }
+            catch (Exception ex)
+            {
+                TestResults.Add(new TestResult
+                {
+                    Message = "[Error] " + ex.Message,
+                    Status = TestResultStatus.Failed
+                });
+
+                OnPropertyChanged(nameof(TestResults));
+            }
+        }
+
+        protected void OnPropertyChanged([CallerMemberName] string name = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+    }
+}
+
+
+---
+
+✅ Recap of What's Fixed
+
+✅ Item	Description
+
+OnPropertyChanged(nameof(TestResults))	Forces WPF to update UI even if collection content changed
+TestResults.Add(...)	Updates the collection
+ObservableCollection<TestResult>	Enables real-time binding in WPF
+Bound ListBox in XAML	Shows messages and colors from converter
+
+
+
+---
+
+Would you also like a version of RelayCommand that disables the Run button when no DLL is selected?
+
