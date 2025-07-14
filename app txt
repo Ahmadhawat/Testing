@@ -1,0 +1,89 @@
+Perfect — yes, you do need App.xaml and App.xaml.cs in every WPF application to define:
+
+The entry point of your app
+
+Which window should open first (usually MainWindow)
+
+Application-wide resources (like converters, styles)
+
+
+
+---
+
+✅ Fixing App.xaml and App.xaml.cs
+
+Here’s everything you need to add.
+
+
+---
+
+📄 App.xaml
+
+<Application x:Class="VSTestRunnerMVVM.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="Views/MainWindow.xaml">
+    <Application.Resources>
+        <!-- Application-wide resources (e.g., converters, styles) go here -->
+    </Application.Resources>
+</Application>
+
+This file tells WPF:
+
+Load MainWindow.xaml on startup
+
+You can define shared styles, converters, etc.
+
+
+
+---
+
+📄 App.xaml.cs
+
+using System.Windows;
+
+namespace VSTestRunnerMVVM
+{
+    public partial class App : Application
+    {
+    }
+}
+
+This file is the code-behind for App.xaml.
+
+
+---
+
+🧠 Where to Put Them
+
+File	Location
+
+App.xaml	In the project root
+App.xaml.cs	Same folder as App.xaml
+
+
+
+---
+
+✅ Update Your .csproj (if needed)
+
+Make sure your .csproj contains:
+
+<ApplicationDefinition Include="App.xaml" />
+
+If you're using the wildcard approach like this:
+
+<Page Include="Views\\*.xaml" />
+
+Then just add:
+
+<ApplicationDefinition Include="App.xaml" />
+
+Or use wildcard:
+
+<ApplicationDefinition Include="*.xaml" />
+
+
+---
+
+Wo
