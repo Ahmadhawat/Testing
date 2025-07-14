@@ -1,0 +1,93 @@
+using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using Microsoft.Win32;
+using VSTestRunnerMVVM.Models;
+
+namespace VSTestRunnerMVVM.ViewModels
+{
+    public class MainViewModel : INotifyPropertyChanged
+    {
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        private string _dllPath;
+        public string DllPath
+        {
+            get => _dllPath;
+            set
+            {
+                _dllPath = value;
+                OnPropertyChanged();
+                _runTestsCommand?.RaiseCanExecuteChanged(); // Update Run button state
+            }
+        }
+
+        public ObservableCollection<TestResult> TestResults { get; } = new();
+
+        public ICommand BrowseDllCommand { get; }
+        public ICommand RunTestsCommand => _runTestsCommand;
+
+        private readonly TestRunner testRunner = new();
+        private readonly RelayCommand _runTestsCommand;
+
+        public MainViewModel()
+        {
+            BrowseDllCommand = new RelayCommand(BrowseDll);
+
+            _runTestsCommand = new RelayCommand(
+                async () => await RunTestsAsync(),
+                () => !string.IsNullOrWhiteSpace(DllPath) // Enable only if DLL is selected
+            );
+        }
+
+        private void BrowseDll()
+        {
+            OpenFileDialog dlg = new()
+            {
+                Filter = "DLL Files (*.dll)|*.dll",
+                Title = "Select Unit Test DLL"
+            };
+
+            if (dlg.ShowDialog() == true)
+            {
+                DllPath = dlg.FileName;
+            }
+        }
+
+        private async Task RunTestsAsync()
+        {
+            try
+            {
+                var results = await testRunner.RunTestsAsync(DllPath);
+
+                TestResults.Clear();
+
+                foreach (var result in results)
+                {
+                    TestResults.Add(result);
+                }
+
+                OnPropertyChanged(nameof(TestResults));
+            }
+            catch (Exception ex)
+            {
+                TestResults.Add(new TestResult
+                {
+                    Message = "[Error] " + ex.Message,
+                    Status = TestResultStatus.Failed
+                });
+
+                OnPropertyChanged(nameof(TestResults));
+            }
+        }
+
+        protected void OnPropertyChanged([CallerMemberName] string name = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+    }
+}
