@@ -1,0 +1,206 @@
+absolutely right — and reasoning reflects proper MVVM architecture. Let’s break this down practically:
+
+
+---
+
+✅ What You're Asking For
+
+You're saying:
+
+The Model should hold the core logic and data — no UI dependencies.
+
+The ViewModel should handle UI-facing logic and act as a bridge.
+
+The View just binds to the ViewModel.
+
+
+This is textbook MVVM and excellent practice, especially when the project grows.
+
+
+---
+
+✅ What Needs Refactoring
+
+To comply fully with MVVM principles:
+
+Move the test execution logic into the Model:
+
+Running the process
+
+Capturing the output
+
+Parsing results into strongly-typed objects
+
+
+ViewModel becomes responsible only for:
+
+Triggering the model’s logic
+
+Transforming results into UI-ready formats
+
+Notifying the view of changes
+
+
+
+---
+
+🔧 Refactored Structure
+
+🧱 Models/TestResult.cs
+
+namespace VSTestRunnerMVVM.Models
+{
+    public class TestResult
+    {
+        public string Message { get; set; }
+        public TestResultStatus Status { get; set; }
+    }
+
+    public enum TestResultStatus
+    {
+        Passed,
+        Failed,
+        Info,
+        Summary
+    }
+}
+
+
+---
+
+🧱 Models/TestRunner.cs
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
+
+namespace VSTestRunnerMVVM.Models
+{
+    public class TestRunner
+    {
+        private readonly string exePath = @"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\Extensions\TestPlatform\vstest.console.exe";
+
+        public async Task<List<TestResult>> RunTestsAsync(string dllPath)
+        {
+            var results = new List<TestResult>();
+
+            if (string.IsNullOrWhiteSpace(dllPath) || !File.Exists(dllPath))
+                throw new FileNotFoundException("Invalid DLL path.");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = exePath,
+                Arguments = $"\"{dllPath}\" --InIsolation",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            var process = new Process { StartInfo = psi };
+
+            process.Start();
+
+            while (!process.StandardOutput.EndOfStream)
+            {
+                var line = await process.StandardOutput.ReadLineAsync();
+                if (!string.IsNullOrWhiteSpace(line))
+                    results.Add(ParseLine(line));
+            }
+
+            while (!process.StandardError.EndOfStream)
+            {
+                var line = await process.StandardError.ReadLineAsync();
+                if (!string.IsNullOrWhiteSpace(line))
+                    results.Add(new TestResult { Message = "[Error] " + line, Status = TestResultStatus.Failed });
+            }
+
+            await process.WaitForExitAsync();
+            return results;
+        }
+
+        private TestResult ParseLine(string line)
+        {
+            var status = TestResultStatus.Info;
+
+            if (line.StartsWith("Passed", StringComparison.OrdinalIgnoreCase))
+                status = TestResultStatus.Passed;
+            else if (line.Contains("Failed", StringComparison.OrdinalIgnoreCase))
+                status = TestResultStatus.Failed;
+            else if (line.StartsWith("Total tests", StringComparison.OrdinalIgnoreCase))
+                status = TestResultStatus.Summary;
+            else if (line.Contains("Test Run Successful", StringComparison.OrdinalIgnoreCase))
+                status = TestResultStatus.Passed;
+            else if (line.Contains("Test Run Failed", StringComparison.OrdinalIgnoreCase))
+                status = TestResultStatus.Failed;
+
+            return new TestResult
+            {
+                Message = line,
+                Status = status
+            };
+        }
+    }
+}
+
+
+---
+
+🧠 ViewModels/MainViewModel.cs (simplified role)
+
+private readonly TestRunner testRunner = new();
+
+private async Task RunTestsAsync()
+{
+    try
+    {
+        var results = await testRunner.RunTestsAsync(DllPath);
+        TestResults.Clear();
+        SummaryLines.Clear();
+
+        foreach (var result in results)
+        {
+            TestResults.Add(result);
+            SummaryLines.Add(new Paragraph(new Run(result.Message)
+            {
+                Foreground = GetColorForStatus(result.Status)
+            }));
+        }
+
+        OnPropertyChanged(nameof(TestLinesText));
+    }
+    catch (Exception ex)
+    {
+        TestResults.Add(new TestResult { Message = "[Error] " + ex.Message, Status = TestResultStatus.Failed });
+    }
+}
+
+private Brush GetColorForStatus(TestResultStatus status)
+{
+    return status switch
+    {
+        TestResultStatus.Passed => Brushes.Green,
+        TestResultStatus.Failed => Brushes.Red,
+        TestResultStatus.Summary => Brushes.CadetBlue,
+        _ => Brushes.Black
+    };
+}
+
+
+---
+
+✅ Summary of MVVM Role Separation
+
+Layer	Responsibilities
+
+Model (TestRunner, TestResult)	Executes tests, parses output, has no UI knowledge
+ViewModel (MainViewModel)	Commands, binds to View, bridges data from model
+View (MainWindow.xaml)	Pure XAML bindings, no logic
+
+
+
+---
+
+
