@@ -1,0 +1,343 @@
+Absolutely — here’s everything you need to copy and paste, including:
+
+
+---
+
+✅ Final Folder Structure
+
+VSTestRunnerMVVM_Final/
+│
+├── VSTestRunnerMVVM_Final.csproj         <-- Project file
+│
+├── Models/
+│   ├── TestResult.cs
+│   └── TestRunner.cs
+│
+├── ViewModels/
+│   ├── MainViewModel.cs
+│   └── RelayCommand.cs
+│
+├── Converters/
+│   └── StatusToBrushConverter.cs
+│
+└── Views/
+    └── MainWindow.xaml
+
+
+---
+
+📄 VSTestRunnerMVVM_Final.csproj
+
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Models\\*.cs" />
+    <Compile Include="ViewModels\\*.cs" />
+    <Compile Include="Converters\\*.cs" />
+    <Page Include="Views\\*.xaml" />
+  </ItemGroup>
+
+</Project>
+
+
+---
+
+📁 Models/TestResult.cs
+
+namespace VSTestRunnerMVVM.Models
+{
+    public class TestResult
+    {
+        public string Message { get; set; }
+        public TestResultStatus Status { get; set; }
+    }
+
+    public enum TestResultStatus
+    {
+        Passed,
+        Failed,
+        Info,
+        Summary
+    }
+}
+
+
+---
+
+📁 Models/TestRunner.cs
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
+
+namespace VSTestRunnerMVVM.Models
+{
+    public class TestRunner
+    {
+        private readonly string exePath = @"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\Extensions\TestPlatform\vstest.console.exe";
+
+        public async Task<List<TestResult>> RunTestsAsync(string dllPath)
+        {
+            var results = new List<TestResult>();
+
+            if (string.IsNullOrWhiteSpace(dllPath) || !File.Exists(dllPath))
+                throw new FileNotFoundException("Invalid DLL path.");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = exePath,
+                Arguments = $"\"{dllPath}\" --InIsolation",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            var process = new Process { StartInfo = psi };
+
+            process.Start();
+
+            while (!process.StandardOutput.EndOfStream)
+            {
+                var line = await process.StandardOutput.ReadLineAsync();
+                if (!string.IsNullOrWhiteSpace(line))
+                    results.Add(ParseLine(line));
+            }
+
+            while (!process.StandardError.EndOfStream)
+            {
+                var line = await process.StandardError.ReadLineAsync();
+                if (!string.IsNullOrWhiteSpace(line))
+                    results.Add(new TestResult { Message = "[Error] " + line, Status = TestResultStatus.Failed });
+            }
+
+            await process.WaitForExitAsync();
+            return results;
+        }
+
+        private TestResult ParseLine(string line)
+        {
+            var status = TestResultStatus.Info;
+
+            if (line.StartsWith("Passed", StringComparison.OrdinalIgnoreCase))
+                status = TestResultStatus.Passed;
+            else if (line.Contains("Failed", StringComparison.OrdinalIgnoreCase))
+                status = TestResultStatus.Failed;
+            else if (line.StartsWith("Total tests", StringComparison.OrdinalIgnoreCase))
+                status = TestResultStatus.Summary;
+            else if (line.Contains("Test Run Successful", StringComparison.OrdinalIgnoreCase))
+                status = TestResultStatus.Passed;
+            else if (line.Contains("Test Run Failed", StringComparison.OrdinalIgnoreCase))
+                status = TestResultStatus.Failed;
+
+            return new TestResult { Message = line, Status = status };
+        }
+    }
+}
+
+
+---
+
+📁 ViewModels/MainViewModel.cs
+
+using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using Microsoft.Win32;
+using VSTestRunnerMVVM.Models;
+
+namespace VSTestRunnerMVVM.ViewModels
+{
+    public class MainViewModel : INotifyPropertyChanged
+    {
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        private string _dllPath;
+        public string DllPath
+        {
+            get => _dllPath;
+            set { _dllPath = value; OnPropertyChanged(); }
+        }
+
+        public ObservableCollection<TestResult> TestResults { get; } = new();
+
+        public string TestLinesText => string.Join(Environment.NewLine, TestResults.Select(r => r.Message));
+
+        public ICommand BrowseDllCommand { get; }
+        public ICommand RunTestsCommand { get; }
+
+        private readonly TestRunner testRunner = new();
+
+        public MainViewModel()
+        {
+            BrowseDllCommand = new RelayCommand(BrowseDll);
+            RunTestsCommand = new RelayCommand(async () => await RunTestsAsync());
+        }
+
+        private void BrowseDll()
+        {
+            OpenFileDialog dlg = new()
+            {
+                Filter = "DLL Files (*.dll)|*.dll",
+                Title = "Select Unit Test DLL"
+            };
+            if (dlg.ShowDialog() == true)
+            {
+                DllPath = dlg.FileName;
+                OnPropertyChanged(nameof(DllPath));
+            }
+        }
+
+        private async Task RunTestsAsync()
+        {
+            try
+            {
+                var results = await testRunner.RunTestsAsync(DllPath);
+                TestResults.Clear();
+                foreach (var result in results)
+                {
+                    TestResults.Add(result);
+                }
+                OnPropertyChanged(nameof(TestLinesText));
+            }
+            catch (Exception ex)
+            {
+                TestResults.Add(new TestResult { Message = "[Error] " + ex.Message, Status = TestResultStatus.Failed });
+            }
+        }
+
+        protected void OnPropertyChanged([CallerMemberName] string name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+}
+
+
+---
+
+📁 ViewModels/RelayCommand.cs
+
+using System;
+using System.Windows.Input;
+
+namespace VSTestRunnerMVVM.ViewModels
+{
+    public class RelayCommand : ICommand
+    {
+        private readonly Action _execute;
+        private readonly Func<bool> _canExecute;
+
+        public RelayCommand(Action execute, Func<bool> canExecute = null)
+        {
+            _execute = execute;
+            _canExecute = canExecute;
+        }
+
+        public bool CanExecute(object parameter) => _canExecute?.Invoke() ?? true;
+
+        public void Execute(object parameter) => _execute();
+
+        public event EventHandler CanExecuteChanged
+        {
+            add => CommandManager.RequerySuggested += value;
+            remove => CommandManager.RequerySuggested -= value;
+        }
+    }
+}
+
+
+---
+
+📁 Converters/StatusToBrushConverter.cs
+
+using System;
+using System.Globalization;
+using System.Windows.Data;
+using System.Windows.Media;
+using VSTestRunnerMVVM.Models;
+
+namespace VSTestRunnerMVVM.Converters
+{
+    public class StatusToBrushConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return value switch
+            {
+                TestResultStatus.Passed => Brushes.Green,
+                TestResultStatus.Failed => Brushes.Red,
+                TestResultStatus.Summary => Brushes.CadetBlue,
+                _ => Brushes.Black
+            };
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotImplementedException();
+    }
+}
+
+
+---
+
+📁 Views/MainWindow.xaml
+
+<Window x:Class="VSTestRunnerMVVM.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:VSTestRunnerMVVM.ViewModels"
+        xmlns:conv="clr-namespace:VSTestRunnerMVVM.Converters"
+        Title="VSTest Runner" Height="650" Width="900">
+    <Window.Resources>
+        <conv:StatusToBrushConverter x:Key="StatusToBrushConverter"/>
+    </Window.Resources>
+    <Window.DataContext>
+        <local:MainViewModel/>
+    </Window.DataContext>
+
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+            <Button Content="Browse DLL" Width="100" Command="{Binding BrowseDllCommand}"/>
+            <TextBox Text="{Binding DllPath}" Width="600" Margin="10,0" IsReadOnly="True"/>
+            <Button Content="Run Tests" Width="100" Command="{Binding RunTestsCommand}" Margin="10,0,0,0"/>
+        </StackPanel>
+
+        <ListBox Grid.Row="1" ItemsSource="{Binding TestResults}" FontFamily="Consolas" FontSize="13">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Message}" 
+                               Foreground="{Binding Status, Converter={StaticResource StatusToBrushConverter}}"/>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </Grid>
+</Window>
+
+
+---
+
+Let me know if you want:
+
+App.xaml and MainWindow.xaml.cs added
+
+A solution file (.sln) to open everything with one click
+
+
+Happy coding!
+
