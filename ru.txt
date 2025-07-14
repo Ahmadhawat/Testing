@@ -1,0 +1,164 @@
+Thank you — that’s an excellent observation, and we can troubleshoot it step by step.
+
+
+---
+
+🧠 Problem Summary:
+
+✅ Browse DLL works → DllPath is populated.
+
+❌ Run Tests either:
+
+does nothing, or
+
+runs, but results aren't showing
+
+
+
+
+---
+
+✅ Let’s Debug in Order
+
+1. ✅ Confirm DllPath Is Set
+
+Ensure your DLL path is displayed in the TextBox after browsing. It should be bound like this:
+
+<TextBox Text="{Binding DllPath}" IsReadOnly="True" />
+
+If you see the path: ✅ good.
+
+
+---
+
+2. ✅ Add Logging to RunTestsAsync()
+
+Go to MainViewModel.cs and add some Console.WriteLine() statements (or use Debug.WriteLine()):
+
+private async Task RunTestsAsync()
+{
+    try
+    {
+        Console.WriteLine("RunTestsAsync called");
+        var results = await testRunner.RunTestsAsync(DllPath);
+        Console.WriteLine($"Received {results.Count} results");
+
+        TestResults.Clear();
+        foreach (var result in results)
+        {
+            TestResults.Add(result);
+        }
+
+        OnPropertyChanged(nameof(TestLinesText));
+    }
+    catch (Exception ex)
+    {
+        TestResults.Add(new TestResult { Message = "[Error] " + ex.Message, Status = TestResultStatus.Failed });
+    }
+}
+
+Then:
+
+Press F5 in Visual Studio
+
+Open the Output window
+
+Check if you see “RunTestsAsync called” and result count
+
+
+
+---
+
+3. ✅ Check That vstest.console.exe Path is Correct
+
+You must confirm that this path exists:
+
+private readonly string exePath = @"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\Extensions\TestPlatform\vstest.console.exe";
+
+🔍 Navigate to this folder manually and verify:
+
+Does vstest.console.exe exist?
+
+Is it the correct version?
+
+
+If not, try:
+
+where vstest.console
+
+Or replace it with:
+
+@"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\Extensions\TestPlatform\vstest.console.exe"
+
+
+---
+
+4. ✅ Check Binding to TestResults
+
+Your UI must bind to TestResults like this:
+
+<ListBox ItemsSource="{Binding TestResults}">
+    <ListBox.ItemTemplate>
+        <DataTemplate>
+            <TextBlock Text="{Binding Message}"
+                       Foreground="{Binding Status, Converter={StaticResource StatusToBrushConverter}}" />
+        </DataTemplate>
+    </ListBox.ItemTemplate>
+</ListBox>
+
+If this is incorrect or missing — you’ll see nothing.
+
+
+---
+
+5. 🔁 Force Refresh with OnPropertyChanged
+
+After modifying TestResults, add this:
+
+OnPropertyChanged(nameof(TestResults));
+OnPropertyChanged(nameof(TestLinesText));
+
+It makes WPF update the UI even if the reference didn’t change.
+
+
+---
+
+✅ Quick Fixes Checklist
+
+Check	Status
+
+DllPath is showing in textbox	✅
+RunTestsAsync is executing	✅/❌
+TestRunner.RunTestsAsync() returns data	✅/❌
+exePath to vstest is correct	✅/❌
+TestResults is bound to ListBox	✅
+
+
+
+---
+
+Want Quick Logging?
+
+Replace your test runner temporarily like this to test UI:
+
+await Task.Delay(500); // simulate work
+var results = new List<TestResult>
+{
+    new TestResult { Message = "Passed Test1", Status = TestResultStatus.Passed },
+    new TestResult { Message = "Failed Test2", Status = TestResultStatus.Failed },
+};
+
+If this shows results: ✅ your binding works — the issue is in test execution.
+
+
+---
+
+Let me know what you see in:
+
+The Output window
+
+Whether you get any count of results
+
+
+Happy to guide you line-by-line from there.
+
